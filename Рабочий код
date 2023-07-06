@@ -1,0 +1,69 @@
+import base64
+import math
+from Crypto.Util.number import bytes_to_long, long_to_bytes
+from pwn import *
+
+#Функция ниже описывает порядок проверки наличия точки в конце сообщения
+def orcale_ifValid(msg_long):
+    msg_base64 = base64.b64encode(long_to_bytes(msg_long))
+    msg_full = b'send ' + msg_base64
+    proc.sendline(msg_full)
+    data = proc.recvuntil(b'[cmd] ')
+    result = data.replace(b'\n[cmd] ', b'')
+    return (result == b'nice')
+
+#Считывание публичного ключа с сервера
+proc = remote('archive.cryptohack.org', '53580')
+data = proc.recvuntil(b'[cmd] ')
+proc.sendline(b'pkey')
+data = proc.recvuntil(b'[cmd] ')
+data = data.replace(b'[pkey] ', b'')
+n_base64 = data.replace(b'\n[cmd] ', b'')
+
+#Считывание зашифрованного сообщения с сервера
+proc.sendline(b'read')
+data = proc.recvuntil(b'[cmd] ')
+data = data.replace(b'[shhh] ', b'')
+c_base64 = data.replace(b'\n[cmd] ', b'')
+
+#Инициализация переменных
+n = bytes_to_long(base64.b64decode(n_base64))
+print('n = ', n)
+e = 65537
+print('e = ', e)
+c = bytes_to_long(base64.b64decode(c_base64))
+print('cypher = ', c)
+
+print('Инициализация завершена, начинаем поиск достаточно длинного s, чтобы выполнилось s*m>n. Подождите.-------------')
+s = 0x81
+count = 2
+while True:
+    s += pow(16, count) * 15
+
+    c1 = pow(s, e, n) * c
+    valid = orcale_ifValid(c1)
+    if not valid:
+        break
+    count += 1
+print(hex(s))
+
+print('Длина подобрана, начинаем уменьшать значение s, чтобы минимизировать r. Это займет какое-то время...-----------')
+times = 0
+while True:
+    if times < 15:
+        s -= pow(16, count)
+        c1 = pow(s, e, n) * c
+        if orcale_ifValid(c1):
+            s += pow(16, count)
+            times = 0
+            count -= 1
+            if count == 1:
+                break
+        else:
+            times += 1
+    else:
+        times = 0
+        count -= 1
+        if count == 1:
+            break
+print(hex(s))
